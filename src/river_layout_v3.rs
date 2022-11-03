@@ -1,5 +1,8 @@
 // re-exports for easier use
-pub use wayland::client::{river_layout_manager_v3::RiverLayoutManagerV3, river_layout_v3::Event};
+pub use wayland::client::{
+    river_layout_manager_v3::RiverLayoutManagerV3,
+    river_layout_v3::{Event, RiverLayoutV3},
+};
 
 pub mod wayland {
     // The generated code tends to trigger a lot of warnings
@@ -12,9 +15,7 @@ pub mod wayland {
         // These imports are used by the generated code
         pub(crate) use wayland_client::protocol::wl_output;
         pub(crate) use wayland_client::sys;
-        pub(crate) use wayland_client::{
-            AnonymousObject, Main, Proxy, ProxyMap,
-        };
+        pub(crate) use wayland_client::{AnonymousObject, Main, Proxy, ProxyMap};
         pub(crate) use wayland_commons::map::{Object, ObjectMetadata};
         pub(crate) use wayland_commons::smallvec;
         pub(crate) use wayland_commons::wire::{Argument, ArgumentType, Message, MessageDesc};

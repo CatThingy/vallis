@@ -1,4 +1,5 @@
-use river_layout_v3::{Event, RiverLayoutManagerV3};
+mod layout;
+mod river_layout_v3;
 
 use wayland_client::{
     global_filter,
@@ -6,7 +7,8 @@ use wayland_client::{
     Display, GlobalManager, Main,
 };
 
-mod river_layout_v3;
+use layout::handle_layout_demand;
+use river_layout_v3::{Event, RiverLayoutManagerV3};
 
 pub struct Globals {
     pub namespace: String,
@@ -15,6 +17,7 @@ pub struct Globals {
 
 pub struct Output {
     pub output: Main<WlOutput>,
+    pub current_tag: u32,
     pub view_padding: i32,
 }
 
@@ -48,32 +51,39 @@ fn main() {
                             let output = Output {
                                 output,
                                 view_padding: 0,
+                                current_tag: 0,
                             };
-                            if let Some(globals) = globals.get::<Globals>() {
-                                let layout = globals
-                                    .layout_manager
-                                    .as_ref()
-                                    .expect("Compositor doesn't implement river_layout_v3")
-                                    .get_layout(&output.output, globals.namespace.clone());
-                                layout.quick_assign(move |layout, event, _| match event {
-                                    Event::NamespaceInUse => {
-                                        layout.destroy();
-                                        panic!("Namespace already in use");
-                                    }
-                                    Event::LayoutDemand {
+                            let Some(globals) = globals.get::<Globals>() else { return; };
+                            let layout = globals
+                                .layout_manager
+                                .as_ref()
+                                .expect("Compositor doesn't implement river_layout_v3")
+                                .get_layout(&output.output, globals.namespace.clone());
+                            layout.quick_assign(move |layout, event, _| match event {
+                                Event::NamespaceInUse => {
+                                    layout.destroy();
+                                    panic!("Namespace already in use");
+                                }
+                                Event::LayoutDemand {
+                                    view_count,
+                                    usable_width,
+                                    usable_height,
+                                    tags,
+                                    serial,
+                                } => {
+                                    handle_layout_demand(
+                                        &layout,
                                         view_count,
                                         usable_width,
                                         usable_height,
                                         tags,
                                         serial,
-                                    } => {
-                                        todo!()
-                                    }
-                                    Event::UserCommand { command } => {
-                                        todo!()
-                                    }
-                                });
-                            }
+                                    );
+                                }
+                                Event::UserCommand { command } => {
+                                    todo!()
+                                }
+                            });
                         }
                         _ => {}
                     });
