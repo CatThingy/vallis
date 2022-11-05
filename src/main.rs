@@ -7,7 +7,7 @@ use wayland_client::{
     Display, GlobalManager, Main,
 };
 
-use layout::handle_layout_demand;
+use layout::LayoutOptions;
 use river_layout_v3::{Event, RiverLayoutManagerV3};
 
 pub struct Globals {
@@ -18,7 +18,7 @@ pub struct Globals {
 pub struct Output {
     pub output: Main<WlOutput>,
     pub current_tag: u32,
-    pub view_padding: i32,
+    pub options: [LayoutOptions; 33],
 }
 
 fn main() {
@@ -50,10 +50,10 @@ fn main() {
                         wl_output::Event::Done => {
                             let output = Output {
                                 output,
-                                view_padding: 0,
                                 current_tag: 0,
+                                options: std::array::from_fn(|_| LayoutOptions::default()),
                             };
-                            let Some(globals) = globals.get::<Globals>() else { return; };
+                            let globals = globals.get::<Globals>().unwrap();
                             let layout = globals
                                 .layout_manager
                                 .as_ref()
@@ -71,14 +71,25 @@ fn main() {
                                     tags,
                                     serial,
                                 } => {
-                                    handle_layout_demand(
-                                        &layout,
+                                    let options = if tags.count_ones() > 0 {
+                                        &output.options[32]
+                                    } else {
+                                        &output.options[tags.trailing_zeros() as usize]
+                                    };
+                                    let mut views = Vec::with_capacity(view_count as usize);
+                                    (options.layout)(
+                                        &mut views,
+                                        options.main_ratio,
+                                        options.gap,
                                         view_count,
                                         usable_width,
                                         usable_height,
-                                        tags,
-                                        serial,
                                     );
+                                    for view in views {
+                                        view.send(&layout, serial);
+                                    }
+
+                                    layout.commit("vallis".to_owned(), serial);
                                 }
                                 Event::UserCommand { command } => {
                                     todo!()
