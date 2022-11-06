@@ -43,6 +43,9 @@ pub fn parse(command: String, output: &mut Output) {
                 "tile" => {
                     options.layout = layout::standard_tile;
                 }
+                "stack" => {
+                    options.layout = layout::stack;
+                }
                 _ => (),
             }
         }
