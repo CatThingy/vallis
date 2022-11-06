@@ -1,3 +1,4 @@
+mod commands;
 mod layout;
 mod river_layout_v3;
 
@@ -7,8 +8,7 @@ use wayland_client::{
     Display, GlobalManager, Main,
 };
 
-use layout::LayoutOptions;
-use river_layout_v3::{Event, RiverLayoutManagerV3};
+use river_layout_v3::{Event, RiverLayoutManagerV3, RiverLayoutV3};
 
 pub struct Globals {
     pub namespace: String,
@@ -19,6 +19,35 @@ pub struct Output {
     pub output: Main<WlOutput>,
     pub current_tag: u32,
     pub options: [LayoutOptions; 33],
+}
+
+pub struct LayoutOptions {
+    pub primary_ratio: f32,
+    pub gap: u32,
+    pub layout: fn(&mut Vec<View>, f32, u32, u32, u32, u32) -> (),
+}
+
+impl Default for LayoutOptions {
+    fn default() -> Self {
+        LayoutOptions {
+            primary_ratio: 0.6,
+            gap: 4,
+            layout: layout::standard_tile,
+        }
+    }
+}
+
+pub struct View {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+impl View {
+    pub fn send(self, layout: &RiverLayoutV3, serial: u32) {
+        layout.push_view_dimensions(self.x, self.y, self.width, self.height, serial);
+    }
 }
 
 fn main() {
@@ -48,7 +77,7 @@ fn main() {
                 |output: Main<WlOutput>, _globals: DispatchData| {
                     output.quick_assign(move |output, event, mut globals| match event {
                         wl_output::Event::Done => {
-                            let output = Output {
+                            let mut output = Output {
                                 output,
                                 current_tag: 0,
                                 options: std::array::from_fn(|_| LayoutOptions::default()),
@@ -71,7 +100,8 @@ fn main() {
                                     tags,
                                     serial,
                                 } => {
-                                    let options = if tags.count_ones() > 0 {
+                                    output.current_tag = tags;
+                                    let options = if tags.count_ones() > 1 {
                                         &output.options[32]
                                     } else {
                                         &output.options[tags.trailing_zeros() as usize]
@@ -79,7 +109,7 @@ fn main() {
                                     let mut views = Vec::with_capacity(view_count as usize);
                                     (options.layout)(
                                         &mut views,
-                                        options.main_ratio,
+                                        options.primary_ratio,
                                         options.gap,
                                         view_count,
                                         usable_width,
@@ -92,7 +122,7 @@ fn main() {
                                     layout.commit("vallis".to_owned(), serial);
                                 }
                                 Event::UserCommand { command } => {
-                                    todo!()
+                                    commands::parse(command, &mut output);
                                 }
                             });
                         }
