@@ -27,16 +27,6 @@ pub struct LayoutOptions {
     pub layout: fn(&mut Vec<View>, f32, u32, u32, u32, u32) -> (),
 }
 
-impl Default for LayoutOptions {
-    fn default() -> Self {
-        LayoutOptions {
-            primary_ratio: 0.6,
-            gap: 4,
-            layout: layout::standard_tile,
-        }
-    }
-}
-
 pub struct View {
     x: i32,
     y: i32,
@@ -50,7 +40,68 @@ impl View {
     }
 }
 
+fn help() -> ! {
+    println!("Usage: vallis [options]\n");
+    println!("  --gap [num]\n\tSets the default gaps between views in pixels (default 6)\n");
+    println!("  --primary_ratio [num]\n\tSets the default ratio of the primary view (default 0.6)\n");
+    println!("  --layout [tile|stack|mono_stack]\n\tSets the default layout (default 'tile')\n");
+
+    std::process::exit(0)
+}
+
 fn main() {
+    let mut args = std::env::args().skip(1);
+
+    let mut default_gaps = 6;
+    let mut default_ratio = 0.6;
+    // compiler can't properly infer the right type here
+    let mut default_layout: fn(&mut Vec<View>, f32, u32, u32, u32, u32) = layout::standard_tile;
+
+    loop {
+        match args.next() {
+            Some(arg) => match arg.as_str() {
+                "--gap" => {
+                    if let Some(Ok(gap)) = args.next().map(|v| v.parse::<u32>()) {
+                        default_gaps = gap.clamp(0, 100);
+                    } else {
+                        help();
+                    }
+                }
+                "--primary_ratio" => {
+                    if let Some(Ok(ratio)) = args.next().map(|v| v.parse::<f32>()) {
+                        default_ratio = ratio.clamp(0.1, 0.9);
+                    } else {
+                        help();
+                    }
+                }
+
+                "--layout" => {
+                    if let Some(arg) = args.next() {
+                        default_layout = match arg.as_str() {
+                            "tile" => layout::standard_tile,
+                            "stack" => layout::stack,
+                            "mono_stack" => layout::mono_stack,
+                            _ => help(),
+                        }
+                    } else {
+                        help();
+                    }
+                }
+                v => {
+                    dbg!(v);
+                    help();
+                }
+            },
+            None => break,
+        }
+    }
+
+    let default_option = move |_| LayoutOptions {
+        gap: default_gaps,
+        primary_ratio: default_ratio,
+        layout: default_layout,
+    };
+
     let display = Display::connect_to_env().unwrap();
     let mut event_queue = display.create_event_queue();
 
@@ -74,13 +125,13 @@ fn main() {
             [
                 WlOutput,
                 3,
-                |output: Main<WlOutput>, _globals: DispatchData| {
+                move |output: Main<WlOutput>, _globals: DispatchData| {
                     output.quick_assign(move |output, event, mut globals| match event {
                         wl_output::Event::Done => {
                             let mut output = Output {
                                 output,
                                 current_tag: 0,
-                                options: std::array::from_fn(|_| LayoutOptions::default()),
+                                options: std::array::from_fn(default_option),
                             };
                             let globals = globals.get::<Globals>().unwrap();
                             let layout = globals
