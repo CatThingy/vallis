@@ -46,6 +46,9 @@ pub fn parse(command: String, output: &mut Output) {
                 "stack" => {
                     options.layout = layout::stack;
                 }
+                "mono_stack" => {
+                    options.layout = layout::mono_stack;
+                }
                 _ => (),
             }
         }

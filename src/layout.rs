@@ -88,16 +88,34 @@ pub fn stack(
     let secondary_width = usable_width - primary_view.width - gap;
     let secondary_offset = (primary_view.width + gap) as i32;
 
-    let secondary_height = usable_height - 4 * gap * (secondary_count - 1);
+    let secondary_height = usable_height - 2 * gap * (secondary_count - 1);
 
     views.push(primary_view);
 
     for i in (0..secondary_count).rev() {
         views.push(View {
             x: secondary_offset,
-            y: (4 * gap * i) as i32,
+            y: (2 * gap * i) as i32,
             width: secondary_width,
             height: secondary_height,
+        });
+    }
+}
+
+pub fn mono_stack(
+    views: &mut Vec<View>,
+    _primary_ratio: f32,
+    gap: u32,
+    view_count: u32,
+    usable_width: u32,
+    usable_height: u32,
+) {
+    for i in (0..view_count).rev() {
+        views.push(View {
+            x: 0,
+            y: (2 * gap * i) as i32,
+            width: usable_width,
+            height: usable_height - 2 * gap * (view_count - 1),
         });
     }
 }
