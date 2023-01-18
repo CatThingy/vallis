@@ -4,7 +4,7 @@ pub use wayland::client::{
     river_layout_v3::{Event, RiverLayoutV3},
 };
 
-pub mod wayland {
+mod wayland {
     // The generated code tends to trigger a lot of warnings
     // so we isolate it into a very permissive module
     #![allow(dead_code, non_camel_case_types, unused_unsafe, unused_variables)]
@@ -12,15 +12,16 @@ pub mod wayland {
     #![allow(clippy::all)]
 
     pub mod client {
-        // These imports are used by the generated code
-        pub(crate) use wayland_client::protocol::wl_output;
-        pub(crate) use wayland_client::sys;
-        pub(crate) use wayland_client::{AnonymousObject, Main, Proxy, ProxyMap};
-        pub(crate) use wayland_commons::map::{Object, ObjectMetadata};
-        pub(crate) use wayland_commons::smallvec;
-        pub(crate) use wayland_commons::wire::{Argument, ArgumentType, Message, MessageDesc};
-        pub(crate) use wayland_commons::{Interface, MessageGroup};
+        use wayland_client;
+        use wayland_client::protocol::*;
+        pub mod interfaces {
+            use wayland_backend;
+            use wayland_client::protocol::__interfaces::*;
+            wayland_scanner::generate_interfaces!("protocol/river-layout-v3.xml");
+        }
 
-        include!("../generated/river_layout_v3.rs");
+        use interfaces::RIVER_LAYOUT_MANAGER_V3_INTERFACE;
+        use interfaces::RIVER_LAYOUT_V3_INTERFACE;
+        wayland_scanner::generate_client_code!("protocol/river-layout-v3.xml");
     }
 }

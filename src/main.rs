@@ -2,23 +2,148 @@ mod commands;
 mod layout;
 mod river_layout_v3;
 
-use wayland_client::{
-    global_filter,
-    protocol::wl_output::{self, WlOutput},
-    Display, GlobalManager, Main,
-};
+const WL_OUTPUT_VERSION: u32 = 4;
+const RIVER_LAYOUT_MANAGER_V3_VERSION: u32 = 2;
 
 use river_layout_v3::{Event, RiverLayoutManagerV3, RiverLayoutV3};
+use wayland_client::{
+    self,
+    protocol::{
+        wl_output::{self, WlOutput},
+        wl_registry::{self, WlRegistry},
+    },
+    Connection, Dispatch, Proxy,
+};
 
-pub struct Globals {
-    pub namespace: String,
-    pub layout_manager: Option<Main<RiverLayoutManagerV3>>,
+pub struct GlobalManager;
+
+pub struct GlobalInit {
+    pub output: Option<WlOutput>,
+    pub layout_manager: Option<RiverLayoutManagerV3>,
 }
 
-pub struct Output {
-    pub output: Main<WlOutput>,
+pub struct State {
+    pub output: WlOutput,
+    pub layout_manager: RiverLayoutManagerV3,
+    pub namespace: String,
     pub current_tag: u32,
     pub options: [LayoutOptions; 33],
+}
+
+impl Dispatch<WlRegistry, wayland_client::QueueHandle<State>> for GlobalInit {
+    fn event(
+        globals: &mut Self,
+        registry: &WlRegistry,
+        event: <WlRegistry as Proxy>::Event,
+        data: &wayland_client::QueueHandle<State>,
+        _: &Connection,
+        _: &wayland_client::QueueHandle<Self>,
+    ) {
+        if let wl_registry::Event::Global {
+            name, interface, ..
+        } = event
+        {
+            match interface.as_str() {
+                "wl_output" => {
+                    globals.output =
+                        Some(registry.bind::<WlOutput, _, _>(name, WL_OUTPUT_VERSION, data, ()));
+                }
+                "river_layout_manager_v3" => {
+                    globals.layout_manager = Some(registry.bind::<RiverLayoutManagerV3, _, _>(
+                        name,
+                        RIVER_LAYOUT_MANAGER_V3_VERSION,
+                        data,
+                        (),
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+impl Dispatch<WlOutput, ()> for State {
+    fn event(
+        state: &mut Self,
+        proxy: &WlOutput,
+        event: <WlOutput as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        qh: &wayland_client::QueueHandle<Self>,
+    ) {
+        match event {
+            wl_output::Event::Done => {
+                state
+                    .layout_manager
+                    .get_layout(proxy, "vallis".to_string(), qh, ());
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<RiverLayoutManagerV3, ()> for State {
+    fn event(
+        _: &mut State,
+        _: &RiverLayoutManagerV3,
+        _: <RiverLayoutManagerV3 as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &wayland_client::QueueHandle<State>,
+    ) {
+        unreachable!();
+    }
+}
+
+impl Dispatch<RiverLayoutV3, ()> for State {
+    fn event(
+        state: &mut Self,
+        layout: &RiverLayoutV3,
+        event: <RiverLayoutV3 as Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &wayland_client::QueueHandle<Self>,
+    ) {
+        match event {
+            Event::NamespaceInUse => {
+                layout.destroy();
+                panic!("Namespace already in use");
+            }
+            Event::LayoutDemand {
+                view_count,
+                usable_width,
+                usable_height,
+                tags,
+                serial,
+            } => {
+                let options = if tags.count_ones() > 1 {
+                    &state.options[32]
+                } else {
+                    &state.options[tags.trailing_zeros() as usize]
+                };
+                let mut views = Vec::with_capacity(view_count as usize);
+                (options.layout)(
+                    &mut views,
+                    options.primary_ratio,
+                    options.gap,
+                    view_count,
+                    usable_width,
+                    usable_height,
+                );
+                for view in views {
+                    view.send(&layout, serial);
+                }
+
+                layout.commit("vallis".to_owned(), serial);
+            }
+            Event::UserCommand { command } => {
+                commands::parse(command, state);
+            }
+            Event::UserCommandTags { tags } => {
+                state.current_tag = tags;
+            }
+        }
+    }
 }
 
 pub struct LayoutOptions {
@@ -43,7 +168,9 @@ impl View {
 fn help() -> ! {
     println!("Usage: vallis [options]\n");
     println!("  --gap [num]\n\tSets the default gaps between views in pixels (default 6)\n");
-    println!("  --primary_ratio [num]\n\tSets the default ratio of the primary view (default 0.6)\n");
+    println!(
+        "  --primary_ratio [num]\n\tSets the default ratio of the primary view (default 0.6)\n"
+    );
     println!("  --layout [tile|stack|mono_stack]\n\tSets the default layout (default 'tile')\n");
 
     std::process::exit(0)
@@ -96,104 +223,45 @@ fn main() {
         }
     }
 
-    let default_option = move |_| LayoutOptions {
+    let default_option = move |_: usize| LayoutOptions {
         gap: default_gaps,
         primary_ratio: default_ratio,
         layout: default_layout,
     };
 
-    let display = Display::connect_to_env().unwrap();
-    let mut event_queue = display.create_event_queue();
+    let connection = Connection::connect_to_env().unwrap();
+    let display = connection.display();
+    let mut globals_event_queue = connection.new_event_queue();
+    let globals_queue_handle = globals_event_queue.handle();
 
-    let attached_display = (*display).clone().attach(event_queue.token());
+    let mut layout_event_queue = connection.new_event_queue();
+    let layout_queue_handle = layout_event_queue.handle();
 
-    let mut globals = Globals {
-        namespace: "vallis".to_owned(),
+    let mut globals = GlobalInit {
+        output: None,
         layout_manager: None,
     };
+    display.get_registry(&globals_queue_handle, layout_queue_handle.clone());
 
-    GlobalManager::new_with_cb(
-        &attached_display,
-        global_filter!(
-            [
-                RiverLayoutManagerV3,
-                1,
-                |layout_manager: Main<RiverLayoutManagerV3>, mut globals: DispatchData| {
-                    globals.get::<Globals>().unwrap().layout_manager = Some(layout_manager);
-                }
-            ],
-            [
-                WlOutput,
-                3,
-                move |output: Main<WlOutput>, _globals: DispatchData| {
-                    output.quick_assign(move |output, event, mut globals| match event {
-                        wl_output::Event::Done => {
-                            let mut output = Output {
-                                output,
-                                current_tag: 0,
-                                options: std::array::from_fn(default_option),
-                            };
-                            let globals = globals.get::<Globals>().unwrap();
-                            let layout = globals
-                                .layout_manager
-                                .as_ref()
-                                .expect("Compositor doesn't implement river_layout_v3")
-                                .get_layout(&output.output, globals.namespace.clone());
-                            layout.quick_assign(move |layout, event, _| match event {
-                                Event::NamespaceInUse => {
-                                    layout.destroy();
-                                    panic!("Namespace already in use");
-                                }
-                                Event::LayoutDemand {
-                                    view_count,
-                                    usable_width,
-                                    usable_height,
-                                    tags,
-                                    serial,
-                                } => {
-                                    output.current_tag = tags;
-                                    let options = if tags.count_ones() > 1 {
-                                        &output.options[32]
-                                    } else {
-                                        &output.options[tags.trailing_zeros() as usize]
-                                    };
-                                    let mut views = Vec::with_capacity(view_count as usize);
-                                    (options.layout)(
-                                        &mut views,
-                                        options.primary_ratio,
-                                        options.gap,
-                                        view_count,
-                                        usable_width,
-                                        usable_height,
-                                    );
-                                    for view in views {
-                                        view.send(&layout, serial);
-                                    }
+    globals_event_queue.roundtrip(&mut globals).unwrap();
 
-                                    layout.commit("vallis".to_owned(), serial);
-                                }
-                                Event::UserCommand { command } => {
-                                    commands::parse(command, &mut output);
-                                }
-                            });
-                        }
-                        _ => {}
-                    });
-                }
-            ]
-        ),
-    );
+    drop(globals_queue_handle);
+    drop(globals_event_queue);
+
+    let mut state = State {
+        output: globals.output.unwrap(),
+        layout_manager: globals.layout_manager.unwrap(),
+        namespace: "vallis".to_owned(),
+        current_tag: 0,
+        options: std::array::from_fn(default_option),
+    };
 
     loop {
-        event_queue
-            .dispatch(&mut globals, |event, object, _| {
-                panic!(
-                    "orphan event: {}@{}: {}",
-                    event.interface,
-                    object.as_ref().id(),
-                    event.name
-                );
-            })
-            .unwrap();
+        match layout_event_queue.blocking_dispatch(&mut state) {
+            Ok(_) => {}
+            Err(e) => {
+                panic!("{e:?}")
+            }
+        }
     }
 }

@@ -2,13 +2,12 @@
 name = "vallis"
 version = "0.1.0"
 edition = "2021"
-build = "build.rs"
+# build = "build.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[build-dependencies]
-wayland-scanner = "0.29.5"
-
 [dependencies]
-wayland-client = "0.29.5"
+wayland-scanner = "0.30.0"
+wayland-client = "0.30.0"
 wayland-commons = "0.29.5"
+wayland-backend = "0.1.0"

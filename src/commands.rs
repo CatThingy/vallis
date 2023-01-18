@@ -1,6 +1,6 @@
-use crate::{layout, Output};
+use crate::{layout, State};
 
-pub fn parse(command: String, output: &mut Output) {
+pub fn parse(command: String, output: &mut State) {
     let mut commands = command.split_whitespace();
 
     let Some(command) = commands.next() else { return };
